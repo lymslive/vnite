@@ -17,6 +17,7 @@ SOURCE Simcli.vim
 
 SOURCE lib/Cmdopt.vim
 SOURCE lib/Circle.vim
+SOURCE lib/Sbuffer.vim
 
 SOURCE command/ls.vim
 SOURCE command/oldfiles.vim
@@ -24,3 +25,4 @@ SOURCE command/registers.vim
 SOURCE command/marks.vim
 SOURCE command/jumps.vim
 SOURCE command/Vnite.vim
+SOURCE command/File.vim

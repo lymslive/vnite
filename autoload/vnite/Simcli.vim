@@ -12,13 +12,18 @@ let s:class.curpos = 0          " cursor position as index of cmdline
 let s:class.keymaps = {}        " refer to global filter mode maps
 let s:class.localmaps = {}      " local buffer filter mode maps
 let s:class.active = v:false    " activelly in filter mode
-let s:class.exitkey = 0         " the reason or which key to exit cmdline
+let s:class.exitkey = ''        " the reason or which key to exit cmdline
 
 let s:class.notify = {}         " data to control nofity
 let s:class.notify.callback = v:null
 let s:class.notify.frequency = 200     " every ms time to notify cmdline changed
 let s:class.notify.lasttime = v:null
 let s:class.notify.cmdline = ''
+
+let s:timer = {}
+let s:timer.id = 0
+let s:timer.frequency = 200
+let s:timer.target = v:null  " the Simcli instance to serve
 
 " Func: #class 
 function! vnite#Simcli#class() abort
@@ -97,6 +102,11 @@ function! s:class.do_loop() dict abort
             let l:char = l:ch
         endif
 
+        if l:char ==# "\<CursorHold>"
+            call self.check_notify()
+            continue
+        endif
+
         if has_key(self.localmaps, l:char)
             let l:remap = self.localmaps[l:char]
             call feedkeys(l:remap, 'n')
@@ -143,7 +153,8 @@ function! s:class.do_loop() dict abort
                 continue
             endif
         endif
-        call self.check_notify()
+
+        " call self.check_notify()
     endwhile
 endfunction
 
@@ -240,7 +251,8 @@ endfunction
 
 " Method: drawcli 
 function! s:class.drawcli() dict abort
-    echon self.prompt
+    echo ''
+    echohl Search | echon self.prompt | echohl NONE
     if empty(self.cmdline)
         echohl Cursor | echon ' ' | echohl NONE
         return
@@ -287,30 +299,35 @@ function! s:class.onEnter() dict abort
     let self.active = v:true
     let self.exitkey = ''
     let self.notify.lasttime = reltime()
+
+    let s:timer.target = self
+    if empty(s:timer.id)
+        let s:timer.id = timer_start(s:timer.frequency, function('s:check_notify'), {'repeat': -1})
+    else
+        call timer_pause(s:timer.id, 0)
+    endif
 endfunction
 
 " Method: onLeave 
 function! s:class.onLeave() dict abort
     let self.active = v:false
+    call timer_pause(s:timer.id, 1)
 endfunction
 
 " Method: check_notify 
 " it's more complex to use timer
 function! s:class.check_notify() dict abort
-    if empty(self.notify.callback) || self.notify.frequency <= 0
+    if empty(self.notify.callback)
         return
     endif
 
     let l:notify = self.notify
-    let l:timediff = reltime(l:notify.lasttime)
-    let l:timediff = reltimefloat(l:timediff) * 1000
-    if l:timediff > self.notify.frequency
-        let l:nowline = join(self.cmdline, '')
-        if l:nowline != l:notify.cmdline
-            let l:notify.cmdline = l:nowline
-            let l:notify.lasttime = reltime()
-            call l:notify.callback(l:notify.cmdline)
-        endif
+    let l:nowline = join(self.cmdline, '')
+    if l:nowline !=# l:notify.cmdline
+        let l:notify.cmdline = l:nowline
+        let l:notify.lasttime = reltime()
+        call l:notify.callback(l:notify.cmdline)
+        redraw
     endif
 endfunction
 
@@ -322,5 +339,15 @@ function! s:class.do_notify() dict abort
         let l:notify.cmdline = join(self.cmdline, '')
         let l:notify.lasttime = reltime()
         call l:notify.callback(l:notify.cmdline)
+    endif
+endfunction
+
+" Func: s:check_notify 
+function! s:check_notify(timerid) abort
+    let l:simcli = s:timer.target
+    if !l:simcli.active
+        call timer_pause(s:timer.id, 1)
+    else
+        call s:timer.target.check_notify()
     endif
 endfunction

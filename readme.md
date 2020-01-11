@@ -1,4 +1,4 @@
-# Vnite: another easily extend Unite by pury VimL
+# Vnite: another easily extend Unite by pure VimL
 
 ## Introduce to Worklow
 

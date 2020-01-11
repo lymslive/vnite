@@ -10,14 +10,6 @@ let s:class._ctype_ = 'Message'
 let s:class.context = {}    " refer to the command context
 let s:class.index = -1       " the index in all messages list
 let s:class.text = ''       " the text line of this message
-let s:class.hasfile = 0
-let s:class.filepath = ''
-let s:class.lpos = 0
-let s:class.cpos = 0
-
-let s:NO_FILE = 0
-let s:IS_FILE = 1
-let s:IS_DIR = 2
 
 " Func: #class 
 function! vnite#Message#class() abort
@@ -75,33 +67,21 @@ endfunction
 
 " Method: action_handle 
 function! s:class.action_handle(name) dict abort
-    let l:func = 'vnite#command#' . self.context.transfer_command_name()
-    let l:func = l:func . '#' . a:name
-    return function(l:func)
-endfunction
-
-" Method: do_action 
-function! s:class.do_action(cmd) dict abort
-    " close message buffer
-    :quit
-    call self.context.winback()
-    execute a:cmd
+    let l:command = self.context.transfer_command_name()
+    let l:func = 'vnite#command#' . l:command . '#' . a:name
+    let l:space = vnite#command#get_space(l:command)
+    if exists('*' . l:func)
+        return function(l:func)
+    else
+        if has_key(l:space, 'actor') && !empty(l:space.actor)
+            return l:space.actor.get(a:name)
+        endif
+        return self.default_action
+    endif
 endfunction
 
 " Method: default_action 
 function! s:class.default_action() dict abort
     echo 'default action dummy'
-    call self.parse()
     return ''
-endfunction
-
-" Method: parse 
-function! s:class.parse() dict abort
-    let l:text = self.text
-endfunction
-
-" Method: to_action 
-" show a vsplit window to show all available actions and bind key
-function! s:class.to_action() dict abort
-    " code
 endfunction

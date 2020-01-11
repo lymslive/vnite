@@ -6,10 +6,9 @@
 
 let g:vnite#main#space = s:
 let s:Context = vnite#Context#class()
-
 let s:jLastContext = {}
-let s:sLastOut = ''
 let s:sMsgBufName = '_CMDMSG_'
+let s:MessageBuffer = v:null
 
 if !exists(':CM')
     command! -bang -count=0 -nargs=* -complete=command CM call vnite#main#run(<bang>0, <count>, <f-args>)
@@ -21,6 +20,7 @@ call s:cmdopt.addhead('Capture and filter message output of any command')
             \.addargument('cmd', 'the real command will execute')
 
 " Func: #run 
+" run a cmd and show in a buffer where can be filtered view
 function! vnite#main#run(bang, count, ...) abort
     let l:options = s:cmdopt.parse(a:000)
     if empty(l:options) || l:options.help
@@ -35,29 +35,40 @@ function! vnite#main#run(bang, count, ...) abort
             if !empty(l:history)
                 let l:cmd = l:history
                 let l:count = a:count
+            else
+                echoerr 'no CM history number:' a:count
             endif
         else
             return s:show_message_window()
         endif
-    else
-        if l:cmd =~# '^\s*CM\s\+'
-            " protect accidently repeat :CM CM prefix
-            let l:cmd = substitute(l:cmd, '^\s*CM\s\+', '', '')
-        endif
     endif
 
-    let l:context = s:Context.new(l:cmd)
-    let s:jLastContext = l:context
-    if l:options.smart && !vnite#command#handled(s:jLastContext.command)
+    if l:cmd =~# '^\s*CM\s\+'
+        " protect accidently repeat :CM CM prefix
         execute l:cmd
         return
     endif
 
-    if s:run_cmd(l:cmd, l:count) != 0
-        return -1
+    let l:context = s:Context.new(l:cmd, s:get_message_buffer())
+    if l:options.smart && !vnite#command#handled(l:context.command)
+        execute l:cmd
+        return
     endif
 
-    let l:bFilter = !empty(g:vnite#config#startfilter)
+    call s:apply_config(l:context)
+    let l:length = s:run_cmd(l:cmd, l:context)
+    if l:length < 1
+        return
+    elseif l:length == 1
+        echo l:content.messages[0]
+        return
+    else
+        let s:jLastContext = l:context
+        call vnite#command#svaecmd(l:cmd, l:count)
+        call s:show_message_window(s:jLastContext)
+    endif
+
+    let l:bFilter = l:context.config.start_filter
     if a:bang
         let l:bFilter = !l:bFilter
     endif
@@ -66,16 +77,30 @@ function! vnite#main#run(bang, count, ...) abort
     endif
 endfunction
 
+" Func: #cap 
+" alike #run, but not show in buffer, only store  and return a context object
+function! vnite#main#cap(cmd) abort
+    let l:context = s:Context.new(a:cmd)
+    let l:length = s:run_cmd(a:cmd, l:context)
+    if l:length > 0
+        return l:context
+    else
+        return v:null
+    endif
+endfunction
+
 " Func: s:run_cmd 
-function! s:run_cmd(cmd, history_number) abort
+" run the cmd, store output in context, return the lines of output
+" return -1 if fail
+function! s:run_cmd(cmd, context) abort
     let l:succ = v:true
     let l:output = ''
     try
-        call vnite#command#precmd(a:cmd, a:history_number)
+        call vnite#command#precmd(a:cmd)
         let l:output = execute(a:cmd)
     catch 
         let l:succ = v:false
-        echo "vnite caught " .. v:exception
+        echo "fail to run cmd: " .. v:exception
     finally
         call vnite#command#postcmd()
     endtry
@@ -84,15 +109,14 @@ function! s:run_cmd(cmd, history_number) abort
         return -1
     endif
 
+    let l:length = 0
     if !empty(g:vnite#command#space.output)
-        call s:jLastContext.store(g:vnite#command#space.output)
+        let l:length = a:context.store(g:vnite#command#space.output)
     elseif !empty(l:output)
-        call s:jLastContext.store(l:output)
-    else
-        return -1
+        let l:length = a:context.store(l:output)
     endif
 
-    return s:show_message_window(s:jLastContext)
+    return l:length
 endfunction
 
 " Func: #statusline 
@@ -115,56 +139,50 @@ function! vnite#main#statusline() abort
 endfunction
 
 " Func: s:show_message_window 
+" a:1, fill the window with new context
 function! s:show_message_window(...) abort
-    let l:iBufnr = s:get_message_buffer()
-    if l:iBufnr < 0
-        echoerr 'Error: cannot creat message buffer?'
-        return -1;
-    endif
-    let l:iWinnr = bufwinnr(l:iBufnr)
-    if l:iWinnr < 0
-        execute s:split_cmd()
-        execute 'buffer ' . l:iBufnr
-    else
-        execute l:iWinnr . 'wincmd w'
-    endif
-    call s:check_maps()
-    if a:0 > 0 && !empty(a:1)
-        execute '1,$ delete'
-        let l:context = a:1
-        let b:VniteContext = l:context
-        call setbufline(l:iBufnr, 1, l:context.messages)
-        if !empty(g:vnite#config#starttoend)
-            normal! G
+    let l:buffer = s:get_message_buffer()
+    call l:buffer.show()
+    if a:0 <= 0 || empty(a:1)
+        if !b:VniteContext.config.reserve_filter
+            call b:VniteContext.simcli.clearall()
         endif
+        return 0
     endif
+
+    let l:context = a:1
+    let b:VniteContext = l:context
+    call l:buffer.setline(l:context.messages)
+    if l:context.config.start_toend
+        normal! G
+    endif
+
+    :nmapclear <buffer>
+    call vnite#config#buffer_maps()
+    let l:space = vnite#command#get_space(l:context)
+    let l:actor = get(l:space, 'actor', {})
+    if !empty(l:actor)
+        call l:actor.bindmap()
+    endif
+
+    call clearmatches()
+    call vnite#command#post_buffer(l:context)
 endfunction
 
 " Func: s:get_message_buffer 
 function! s:get_message_buffer() abort
-    let l:iBufnr = bufnr(s:sMsgBufName)
-    if l:iBufnr > 0
-        return l:iBufnr
+    if empty(s:MessageBuffer)
+        let s:MessageBuffer = vnite#lib#Sbuffer#new(s:sMsgBufName, function('s:initMsgBuf'))
+        let s:MessageBuffer.spcmd = s:split_cmd()
     endif
-    execute s:split_cmd() . ' ' . s:sMsgBufName
-    setlocal buftype=nofile
-    setlocal bufhidden=hide
-    setlocal nobuflisted
-    setlocal filetype=cmdmsg
-    setlocal statusline=%!vnite#main#statusline()
-    call vnite#config#nmap_msgbuf()
-    return bufnr(s:sMsgBufName)
+    return s:MessageBuffer
 endfunction
 
-" Func: s:check_maps 
-function! s:check_maps() abort
-    let l:map = maparg('q', 'n', 0, 1)
-    if !empty(l:map) && get(l:map, 'buffer', 0) == 1
-        return
-    else
-        call vnite#config#nmap_msgbuf()
-        setlocal statusline=%!vnite#main#statusline()
-    endif
+" Func: s:initMsgBuf 
+function! s:initMsgBuf() abort
+    " setlocal filetype=cmdmsg
+    setlocal statusline=%!vnite#main#statusline()
+    call vnite#config#buffer_maps()
 endfunction
 
 " Func: s:split_cmd 
@@ -176,7 +194,27 @@ function! s:split_cmd() abort
     return printf('botright %d split', l:height)
 endfunction
 
-" Func: s:prev_cmd 
-function! s:prev_cmd() abort
-    " code
+" Func: s:apply_config 
+function! s:apply_config(context) abort
+    if !has_key(a:context, 'config') || !empty(a:context.config)
+        return
+    endif
+    let l:config = {}
+    let l:space = vnite#command#get_space(a:context)
+    call s:set_value(l:config, 'start_filter', l:space, 0)
+    call s:set_value(l:config, 'reserve_filter', l:space, 1)
+    call s:set_value(l:config, 'start_toend', l:space, 0)
+    call s:set_value(l:config, 'keep_open', l:space, 0)
+    let a:context.config = l:config
+endfunction
+
+" Func: set_value
+function! s:set_value(config, name, space, default) abort
+    if has_key(a:space, a:name)
+        let a:config[a:name] = a:space[a:name]
+    elseif exists('g:vnite#config#' . a:name)
+        let a:config[a:name] = g:vnite#config#{a:name}
+    else
+        let a:config[a:name] = a:default
+    endif
 endfunction

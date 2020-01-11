@@ -39,7 +39,8 @@ function! vnite#filter#noremap(...) abort
         elseif !empty(l:arg) && empty(l:lhs)
             let l:lhs = l:arg
             if l:idx < a:0
-                let l:rhs = a:000[l:idx : ]->join(' ')
+                " let l:rhs = a:000[l:idx : ]->join(' ')
+                let l:rhs = join(a:000[l:idx : ], ' ')
             endif
             break
         endif
@@ -126,6 +127,12 @@ function! vnite#filter#apply(cmdline) abort
             call setline(1, b:VniteContext.messages)
             match none
         endif
+    elseif a:cmdline =~# '^\d\+$'
+        if search('^\s*' . a:cmdline, 'cw') == 0
+            let l:linenr = str2nr(a:cmdline)
+            call cursor(l:linenr, 0)
+        endif
+    elseif a:cmdline =~# '^-' && len(a:cmdline) >= 2
     elseif len(a:cmdline) < 3
         return
     else
@@ -143,7 +150,7 @@ function! vnite#filter#apply(cmdline) abort
         endfunction
         call filter(b:VniteContext.messages, funcref('s:callback'))
         call setline(1, l:filtered)
-        execute 'match Search /' . escape(l:cmdline, '/') . '/'
+        execute 'silent! match Search /' . escape(l:cmdline, '/') . '/'
     endif
 endfunction
 
@@ -164,7 +171,8 @@ endfunction
 
 " Func: s:create_filter_cmdline 
 function! s:create_filter_cmdline() abort
-    let l:cli = s:Simcli.new('| ')
+    let l:prompt = get(g:, 'vnite#config#prompt_filter', '|')
+    let l:cli = s:Simcli.new(l:prompt)
     call l:cli.set_keymaps(s:dRemap)
     call l:cli.set_notify(function('vnite#filter#apply'))
     return l:cli
@@ -180,11 +188,15 @@ function! s:encode_mapkey(key) abort
     return l:key
 endfunction
 
+let s:decode_mapkey = function('vnite#helper#decode_mapkey')
+
 " Func: s:fmaplist 
 function! s:fmaplist(...) abort
     if a:0 == 0 || empty(a:1)
         echo len(s:dRemap) 'Fnoremaps:'
         for [l:key, l:val] in items(s:dRemap)
+            let l:key = s:decode_mapkey(l:key)
+            let l:val = s:decode_mapkey(l:val)
             echo 'Fnoremap' l:key l:val
             unlet l:key  l:val
         endfor
@@ -193,6 +205,8 @@ function! s:fmaplist(...) abort
         let l:key = s:encode_mapkey(a:1)
         let l:val = get(s:dRemap, l:key, '')
         if !empty(l:val)
+            let l:key = s:decode_mapkey(l:key)
+            let l:val = s:decode_mapkey(l:val)
             echo 'Fnoremap' l:key l:val
         else
             echo 'no remap for' l:key
@@ -209,6 +223,8 @@ function! s:fmaplocal(...) abort
     if a:0 == 0 || empty(a:1)
         echo len(s:dRemap) 'Fnoremaps:'
         for [l:key, l:val] in items(s:dRemap)
+            let l:key = s:decode_mapkey(l:key)
+            let l:val = s:decode_mapkey(l:val)
             echo 'Fnoremap <buffer>' l:key l:val
             unlet l:key  l:val
         endfor
@@ -217,6 +233,8 @@ function! s:fmaplocal(...) abort
         let l:key = s:encode_mapkey(a:1)
         let l:val = get(s:dRemap, l:key, '')
         if !empty(l:val)
+            let l:key = s:decode_mapkey(l:key)
+            let l:val = s:decode_mapkey(l:val)
             echo 'Fnoremap <buffer>' l:key l:val
         else
             echo 'no remap for' l:key
@@ -238,4 +256,4 @@ endfunction
 if !exists(':Fnoremap')
     command! -nargs=* Fnoremap call vnite#filter#noremap(<f-args>)
 endif
-call vnite#config#fmap_global()
+call vnite#config#filter_maps()

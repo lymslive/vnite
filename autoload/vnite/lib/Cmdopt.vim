@@ -10,21 +10,21 @@ function! vnite#lib#Cmdopt#class() abort
 endfunction
 
 let s:class = {}
-let s:class._ctype_ = 'Cmdopt'
 let s:class.cmdname = ''
 let s:class.options = []
 let s:class.shortmap = {}
 let s:class.arguments = []
+let s:class.mixing = v:false " option may after position argument ?
 let s:class.headline = ''
 let s:class.footnote = ''
-let s:class.errormsg = ''
+let s:class.errormsg = ''  " any error when parse
 
 " the sctruct of one option
 let s:option = {}
 let s:option.name = ''
 let s:option.short = ''
 let s:option.desc = ''
-let s:option.arg = 0
+let s:option.arg = 0   " option may have it's own argument
 let s:option.default = v:null
 
 " Func: s:new_option 
@@ -59,6 +59,12 @@ function! s:class.new(cmdname) dict abort
     let l:object.shortmap = {}
     let l:object.arguments = []
     return l:object
+endfunction
+
+" Method: mixoption 
+function! s:class.mixoption() dict abort
+    let self.mixing = v:true
+    return self
 endfunction
 
 " Method: addoption 
@@ -189,7 +195,7 @@ function! s:class.parse(args) dict abort
         elseif l:arg =~# '^--.'
             let l:tokens = split(strpart(l:arg,2), '=')
             let l:opt = l:tokens[0]
-            let l:val = ''
+            let l:val = v:true
             if len(l:tokens) > 1
                 let l:val = l:tokens[1]
             endif
@@ -228,6 +234,9 @@ function! s:class.parse(args) dict abort
             endif
         else
             call add(l:result.arguments, l:arg)
+            if empty(self.mixing)
+                break
+            endif
         endif
     endfor
     if l:begin < len(a:args)
@@ -235,3 +244,13 @@ function! s:class.parse(args) dict abort
     endif
     return l:result
 endfunction
+
+finish
+" -------------------------------------------------------------------------------- "
+"
+" Support Option Format:
+" -- or - : end of option, remaining is argument
+" -abc    : a,b,c all are options without argument, result value v:true, or
+"           defaut value defined
+" -aArg   : option a with a argument value 'Arg'
+" --long=Arg : long option with argument value 'Arg'
