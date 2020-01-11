@@ -1,0 +1,1 @@
+call vnite#plugin#load()
